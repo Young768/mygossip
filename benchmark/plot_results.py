@@ -77,7 +77,7 @@ plt.xlabel("Input Size [Bytes]")
 plt.ylabel("Throughput [GB/s]")
 
 plt.legend()
-
+plt.savefig("result")
 # either show plot or save as file
 if args.output == "show plot":
     plt.show()
