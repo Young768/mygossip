@@ -106,7 +106,8 @@ void scatter_gather_p2p(
     gossip::transfer_plan_t scatter_plan,
     gossip::transfer_plan_t gather_plan,
     const size_t batch_size,
-    const size_t batch_size_secure) {
+    const size_t batch_size_secure,
+    gpu_id_t t_gpu) {
 
     gossip::scatter::verify_plan(scatter_plan);
     gossip::gather::verify_plan(gather_plan);
@@ -132,10 +133,10 @@ void scatter_gather_p2p(
         auto scatter = gossip::scatter_t(context, scatter_plan);
         auto gather = gossip::gather_t(context, gather_plan);
 
-        run_multisplit_scatter_gather<data_t>(
+        run_multisplit_scatter_gather_p2p<data_t>(
             context, point2point, multisplit, scatter, gather,
             main_gpu,
-            batch_size, batch_size_secure);
+            batch_size, batch_size_secure, t_gpu);
 
         context.sync_hard();
     }

@@ -3,7 +3,7 @@ NVCCGENCODE = \
               -gencode arch=compute_60,code=sm_60 \
               -gencode arch=compute_70,code=sm_70
 
-NVCCFLAGS = $(NVCCGENCODE) -O3 -std=c++11 --expt-extended-lambda -Xcompiler="-fopenmp" -Wreorder -lineinfo
+NVCCFLAGS = $(NVCCGENCODE) -O3 -std=c++11 --expt-extended-lambda -Xcompiler="-fopenmp" -Wreorder -lineinfo -L/data00/home/donglin.yang/test/cpp3rdlib/cuda/lib64 -l:libcudadevrt.a
 
 HEADERS = include/gossip.cuh \
 		  include/gossip/all_to_all_async.cuh \
