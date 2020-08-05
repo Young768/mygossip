@@ -75,6 +75,10 @@ for i, s in enumerate(sizes):
                 # only measure scatter since both operations perform the same
                 if line.startswith('TIMING') and line.endswith("(" + "scatter" + ")"):
                     out_csv += "," + str(float(line.split(' ')[1]))
+            elif args.type == "scatter_gather_p2p":
+                # only measure scatter since both operations perform the same
+                if line.startswith('TIMING') and line.endswith("(" + "scatter" + ")"):
+                    out_csv += "," + str(float(line.split(' ')[1]))
             else:
                 if line.startswith('TIMING') and line.endswith("(" + args.type + ")"):
                     out_csv += "," + str(float(line.split(' ')[1]))
