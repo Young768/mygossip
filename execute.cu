@@ -102,6 +102,46 @@ void scatter_gather(
 }
 
 template<typename data_t>
+void scatter_gather_p2p(
+    gossip::transfer_plan_t scatter_plan,
+    gossip::transfer_plan_t gather_plan,
+    const size_t batch_size,
+    const size_t batch_size_secure) {
+
+    gossip::scatter::verify_plan(scatter_plan);
+    gossip::gather::verify_plan(gather_plan);
+
+    auto num_gpus = scatter_plan.num_gpus();
+    if(num_gpus != gather_plan.num_gpus()) {
+        std::cout << "scatter and gather num_gpus does not match" << std::endl;
+        return;
+    }
+
+    auto main_gpu = scatter_plan.main_gpu();
+    if(main_gpu != gather_plan.main_gpu()) {
+        std::cout << "scatter and gather main_gpu does not match" << std::endl;
+        return;
+    }
+
+    if(scatter_plan.valid() && gather_plan.valid()) {
+
+        auto context = gossip::context_t(num_gpus);
+        // context.print_connectivity_matrix();
+        auto point2point = gossip::point2point_t(context);
+        auto multisplit = gossip::multisplit_t(context);
+        auto scatter = gossip::scatter_t(context, scatter_plan);
+        auto gather = gossip::gather_t(context, gather_plan);
+
+        run_multisplit_scatter_gather<data_t>(
+            context, point2point, multisplit, scatter, gather,
+            main_gpu,
+            batch_size, batch_size_secure);
+
+        context.sync_hard();
+    }
+}
+
+template<typename data_t>
 void broadcaster(
     gossip::transfer_plan_t transfer_plan,
     const size_t batch_size,
@@ -132,12 +172,13 @@ int main (int argc, char *argv[]) {
 
     // parse args using https://github.com/muellan/clipp
     using namespace clipp;
-    enum class mode {all2all, all2all_async, scatter_gather, broadcast, help};
+    enum class mode {all2all, all2all_async, scatter_gather, scatter_gather_p2p, broadcast, help};
 
     mode selected;
     double security_factor = 1.5;
     size_t data_size = 28;
     std::string plan_file, scatter_plan_file, gather_plan_file;
+    gpu_id_t t_gpu =7;
 
     auto cli =
     (
@@ -154,9 +195,14 @@ int main (int argc, char *argv[]) {
                 (
                     command("scatter_gather").set(selected, mode::scatter_gather),
                     value("scatter plan", scatter_plan_file), value("gather plan", gather_plan_file)
+                ) |
+                (
+                    command("scatter_gather_p2p").set(selected, mode::scatter_gather_p2p),
+                    value("scatter plan", scatter_plan_file), value("gather plan", gather_plan_file)
                 )
             ),
             option("--size", "-s") & value("size", data_size) % "data size (bytes log2) [default: 28]",
+            option("--target", "-t") & value("target", t_gpu) % "target gpu [default: 7]",
             option("--memory-factor") & value("factor", security_factor) % "memory security factor [default: 1.5]"
         ) |
         command("help").set(selected, mode::help)
@@ -186,6 +232,10 @@ int main (int argc, char *argv[]) {
             case mode::scatter_gather:
                 std::cout << "RUN: scatter_gather" << std::endl;
                 scatter_gather<data_t>(parse_plan(scatter_plan_file.c_str()), parse_plan(gather_plan_file.c_str()), data_size, data_size_secure);
+                break;
+            case mode::scatter_gather_p2p:
+                std::cout << "RUN: scatter_gather_p2p" << std::endl;
+                scatter_gather_p2p<data_t>(parse_plan(scatter_plan_file.c_str()), parse_plan(gather_plan_file.c_str()), data_size, data_size_secure, t_gpu);
                 break;
             case mode::help:
                 std::cout << make_man_page(cli, "execute").

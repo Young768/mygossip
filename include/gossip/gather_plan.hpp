@@ -34,10 +34,10 @@ public:
         for (const auto& sequence : plan.transfer_sequences()) {
             completeness[sequence.seq.front()] += sequence.size;
         }
-        for (gpu_id_t trg = 0; trg < plan.num_gpus(); ++trg) {
-            valid &= check(completeness[trg] == plan.num_chunks(),
-                        "transfer plan is incomplete.");
-        }
+        //for (gpu_id_t trg = 0; trg < plan.num_gpus(); ++trg) {
+        //    valid &= check(completeness[trg] == plan.num_chunks(),
+        //                "transfer plan is incomplete.");
+        //}
 
         if(valid)
             plan.validate();
