@@ -738,11 +738,11 @@ void run_multisplit_scatter_gather_p2p(
 
     {
         GpuTimer gtimer(context.get_streams(0)[0], "validate_scatter", context.get_device_id(0), std::cout);
-        for (gpu_id_t gpu = 0; gpu < num_gpus; gpu++) {
-            cudaSetDevice(context.get_device_id(gpu));
-            validate<<<256, 1024, 0, context.get_streams(gpu)[0]>>>
-                (dsts[gpu], table[main_gpu][gpu], gpu, part_hash);
-        }
+        //for (gpu_id_t gpu = 0; gpu < num_gpus; gpu++) {
+            cudaSetDevice(context.get_device_id(t_gpu));
+            validate<<<256, 1024, 0, context.get_streams(t_gpu)[0]>>>
+                (dsts[t_gpu], table[main_gpu][t_gpu], gpu, part_hash);
+        //}
         context.sync_all_streams();
         CUERR
     }
@@ -796,10 +796,10 @@ void run_multisplit_scatter_gather_p2p(
         }
 
         cudaSetDevice(context.get_device_id(main_gpu));
-        for (gpu_id_t gpu = 0; gpu < num_gpus; gpu++) {
+        //for (gpu_id_t gpu = 0; gpu < num_gpus; gpu++) {
             validate<<<256, 1024, 0, context.get_streams(main_gpu)[0]>>>
-                (mems2[gpu], table[main_gpu][gpu], gpu, part_hash);
-        }
+                (mems2[t_gpu], table[main_gpu][t_gpu], gpu, part_hash);
+        //}
         context.sync_all_streams();
         CUERR
     }
