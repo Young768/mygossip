@@ -58,7 +58,7 @@ for i, s in enumerate(sizes):
         if args.type == "scatter_gather":
             out = subprocess.check_output([exe, args.type, plans[0], plans[1], "--size", str(s)])
         elif args.type == "scatter_gather_p2p":
-            out = subprocess.check_output([exe, args.type, plans[0], plans[1], "--size", str(s), "--target", tget])
+            out = subprocess.check_output([exe, args.type, plans[0], plans[1], "--size", str(s), "--target", str(tget)])
         else:
             out = subprocess.check_output([exe, args.type, plans[0], "--size", str(s)])
 
