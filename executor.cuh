@@ -639,7 +639,7 @@ template<
     class T3,
     class T4,
     class T5>
-void run_multisplit_scatter_gather(
+void run_multisplit_scatter_gather_p2p(
         T1& context,
         T2& point2point,
         T3& multisplit,
