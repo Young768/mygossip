@@ -69,6 +69,8 @@ for i, s in enumerate(sizes):
                 # add data size [bytes] as first columns to csv
                 if line.startswith('INFO') and line.endswith("(" + args.type + ")"):
                     out_csv += str(line.split(' ')[1])
+                elif line.startswith('INFO') and line.endswith("(" + "scatter_gather_p2p" + ")"):
+                    out_csv += str(line.split(' ')[1])
 
             # add runtime [ms] as subsequent column(s) to csv
             if args.type == "scatter_gather":
