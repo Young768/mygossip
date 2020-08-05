@@ -343,181 +343,6 @@ template<
     class T3,
     class T4,
     class T5>
-void run_multisplit_scatter_gather_p2p(
-        T1& context,
-        T2& point2point,
-        T3& multisplit,
-        T4& scatter,
-        T5& gather,
-        gpu_id_t main_gpu,
-        const size_t batch_size,
-        const size_t batch_size_secure,
-        gpu_id_t t_gpu)
-{
-    const gpu_id_t num_gpus = context.get_num_devices();
-    std::cout << "INFO: " << sizeof(data_t)*batch_size << " bytes (scatter_gather)" << std::endl;
-
-    std::vector<data_t *> srcs(num_gpus);
-    std::vector<data_t *> dsts(num_gpus);
-    std::vector<size_t  > lens(num_gpus, 0);
-    lens[main_gpu] = batch_size;
-    const std::vector<size_t> mems_lens(num_gpus, batch_size_secure);
-
-    {
-        GpuTimer gtimer(context.get_streams(0)[0], "malloc_devices", context.get_device_id(0), std::cout);
-        for (gpu_id_t gpu = 0; gpu < num_gpus; ++gpu) {
-            cudaSetDevice(context.get_device_id(gpu)); CUERR
-            cudaMalloc(&srcs[gpu], sizeof(data_t)*mems_lens[gpu]); CUERR
-            cudaMalloc(&dsts[gpu], sizeof(data_t)*mems_lens[gpu]); CUERR
-        }
-    }
-
-    {
-        GpuTimer gtimer(context.get_streams(0)[0], "zero_gpu_buffers", context.get_device_id(0), std::cout);
-        memset_all(context, srcs, mems_lens, data_t(0));
-        memset_all(context, dsts, mems_lens, data_t(0));
-        context.sync_all_streams();
-        CUERR
-    }
-
-    {
-        GpuTimer gtimer(context.get_streams(0)[0], "init_data", context.get_device_id(0), std::cout);
-        cudaSetDevice(context.get_device_id(main_gpu));
-        generate_data<<<256, 1024, 0, context.get_streams(main_gpu)[0]>>>
-            (srcs[main_gpu], lens[main_gpu], size_t(0));
-        context.sync_all_streams();
-        CUERR
-    }
-
-    // perform multisplit on main device
-    auto part_hash = [=] HOSTDEVICEQUALIFIER (const data_t& x){
-        return (x % num_gpus);
-    };
-
-    std::vector<std::vector<size_t>> table(num_gpus, std::vector<size_t>(num_gpus));
-    {
-        GpuTimer gtimer(context.get_streams(0)[0], "multisplit", context.get_device_id(0), std::cout);
-        multisplit.execAsync(srcs, lens, dsts, lens, table, part_hash);
-        multisplit.sync();
-    }
-
-    print_partition_table(table);
-
-    // prepare scatter --------------------------------------------------------
-    srcs.swap(dsts);
-
-    std::vector<size_t> bufs_lens_scatter = scatter.calcBufferLengths(table[main_gpu]);
-    print_buffer_sizes(bufs_lens_scatter);
-
-    std::vector<data_t *> bufs(num_gpus);
-    std::vector<size_t> bufs_lens(bufs_lens_scatter);
-    {
-        GpuTimer gtimer(context.get_streams(0)[0], "malloc_buffers", context.get_device_id(0), std::cout);
-        for (gpu_id_t gpu = 0; gpu < num_gpus; ++gpu) {
-            cudaSetDevice(context.get_device_id(gpu)); CUERR
-            cudaMalloc(&bufs[gpu], sizeof(data_t)*bufs_lens[gpu]); CUERR
-        }
-    }
-
-    // reset dsts and buffer to zero
-    {
-        GpuTimer gtimer(context.get_streams(0)[0], "reset_buffers", context.get_device_id(0), std::cout);
-        memset_all(context, dsts, mems_lens, data_t(0));
-        memset_all(context, bufs, bufs_lens, data_t(0));
-        context.sync_all_streams();
-        CUERR
-    }
-
-    // scatter.show_plan();
-
-    {
-        GpuTimer gtimer(context.get_streams(0)[0], "scatter", context.get_device_id(0), std::cout);
-        scatter.execAsync(srcs[main_gpu], mems_lens[main_gpu],
-                        dsts, mems_lens,
-                        bufs, bufs_lens,
-                        table[main_gpu]);
-        scatter.sync();
-        CUERR
-    }
-
-    {
-        GpuTimer gtimer(context.get_streams(0)[0], "validate_scatter", context.get_device_id(0), std::cout);
-        for (gpu_id_t gpu = 0; gpu < num_gpus; gpu++) {
-            cudaSetDevice(context.get_device_id(gpu));
-            validate<<<256, 1024, 0, context.get_streams(gpu)[0]>>>
-                (dsts[gpu], table[main_gpu][gpu], gpu, part_hash);
-        }
-        context.sync_all_streams();
-        CUERR
-    }
-
-    std::cout << '\n';
-
-    // prepare gather ---------------------------------------------------------
-    srcs.swap(dsts);
-
-    std::vector<size_t> bufs_lens_gather = gather.calcBufferLengths(table[main_gpu]);
-    print_buffer_sizes(bufs_lens_gather);
-
-    {
-        GpuTimer gtimer(context.get_streams(0)[0], "realloc_buffers", context.get_device_id(0), std::cout);
-        for (gpu_id_t gpu = 0; gpu < num_gpus; ++gpu) {
-            if(bufs_lens[gpu] < bufs_lens_gather[gpu]) {
-                bufs_lens[gpu] = bufs_lens_gather[gpu];
-                cudaSetDevice(context.get_device_id(gpu)); CUERR
-                cudaFree(bufs[gpu]); CUERR
-                cudaMalloc(&bufs[gpu], sizeof(data_t)*bufs_lens[gpu]); CUERR
-            }
-        }
-    }
-
-    // reset dsts and buffer to zero
-    {
-        GpuTimer gtimer(context.get_streams(0)[0], "reset_buffers_again", context.get_device_id(0), std::cout);
-        memset_all(context, dsts, mems_lens, data_t(0));
-        memset_all(context, bufs, bufs_lens, data_t(0));
-        context.sync_all_streams();
-        CUERR
-    }
-
-    // gather.show_plan();
-
-    {
-        GpuTimer gtimer(context.get_streams(0)[0], "gather", context.get_device_id(0), std::cout);
-        gather.execAsync(srcs, mems_lens,
-                        dsts[main_gpu], mems_lens[main_gpu],
-                        bufs, bufs_lens,
-                        table[main_gpu]);
-        gather.sync();
-        CUERR
-    }
-
-    {
-        GpuTimer gtimer(context.get_streams(0)[0], "validate_gather", context.get_device_id(0), std::cout);
-        std::vector<data_t *> mems2(num_gpus, dsts[main_gpu]);
-        for (gpu_id_t trg = 1; trg < num_gpus; trg++) {
-            mems2[trg] = mems2[trg-1] + table[main_gpu][trg-1];
-        }
-
-        cudaSetDevice(context.get_device_id(main_gpu));
-        //for (gpu_id_t gpu = 0; gpu < num_gpus; gpu++) {
-            validate<<<256, 1024, 0, context.get_streams(main_gpu)[0]>>>
-                (mems2[t_gpu], table[main_gpu][t_gpu], t_gpu, part_hash);
-        //}
-        context.sync_all_streams();
-        CUERR
-    }
-
-    // cleanup ----------------------------------------------------------------
-    context.sync_hard();
-    for (gpu_id_t gpu = 0; gpu < num_gpus; ++gpu) {
-        cudaSetDevice(context.get_device_id(gpu)); CUERR
-        cudaFree(srcs[gpu]);        CUERR
-        cudaFree(dsts[gpu]);        CUERR
-        cudaFree(bufs[gpu]);        CUERR
-    }
-}
-
 void run_multisplit_scatter_gather(
         T1& context,
         T2& point2point,
@@ -692,7 +517,6 @@ void run_multisplit_scatter_gather(
     }
 }
 
-
 template<
     typename data_t,
     class T1,
@@ -802,5 +626,190 @@ void run_multisplit_broadcast(
         cudaSetDevice(context.get_device_id(gpu)); CUERR
         cudaFree(srcs[gpu]);        CUERR
         cudaFree(dsts[gpu]);        CUERR
+    }
+}
+
+
+////add scatter and gather point2point
+
+template<
+    typename data_t,
+    class T1,
+    class T2,
+    class T3,
+    class T4,
+    class T5>
+void run_multisplit_scatter_gather(
+        T1& context,
+        T2& point2point,
+        T3& multisplit,
+        T4& scatter,
+        T5& gather,
+        gpu_id_t main_gpu,
+        const size_t batch_size,
+        const size_t batch_size_secure,
+        gpu_id_t t_gpu)
+{
+    const gpu_id_t num_gpus = context.get_num_devices();
+    std::cout << "INFO: " << sizeof(data_t)*batch_size << " bytes (scatter_gather)" << std::endl;
+
+    std::vector<data_t *> srcs(num_gpus);
+    std::vector<data_t *> dsts(num_gpus);
+    std::vector<size_t  > lens(num_gpus, 0);
+    lens[main_gpu] = batch_size;
+    const std::vector<size_t> mems_lens(num_gpus, batch_size_secure);
+
+    {
+        GpuTimer gtimer(context.get_streams(0)[0], "malloc_devices", context.get_device_id(0), std::cout);
+        for (gpu_id_t gpu = 0; gpu < num_gpus; ++gpu) {
+            cudaSetDevice(context.get_device_id(gpu)); CUERR
+            cudaMalloc(&srcs[gpu], sizeof(data_t)*mems_lens[gpu]); CUERR
+            cudaMalloc(&dsts[gpu], sizeof(data_t)*mems_lens[gpu]); CUERR
+        }
+    }
+
+    {
+        GpuTimer gtimer(context.get_streams(0)[0], "zero_gpu_buffers", context.get_device_id(0), std::cout);
+        memset_all(context, srcs, mems_lens, data_t(0));
+        memset_all(context, dsts, mems_lens, data_t(0));
+        context.sync_all_streams();
+        CUERR
+    }
+
+    {
+        GpuTimer gtimer(context.get_streams(0)[0], "init_data", context.get_device_id(0), std::cout);
+        cudaSetDevice(context.get_device_id(main_gpu));
+        generate_data<<<256, 1024, 0, context.get_streams(main_gpu)[0]>>>
+            (srcs[main_gpu], lens[main_gpu], size_t(0));
+        context.sync_all_streams();
+        CUERR
+    }
+
+    // perform multisplit on main device
+    auto part_hash = [=] HOSTDEVICEQUALIFIER (const data_t& x){
+        return (x % num_gpus);
+    };
+
+    std::vector<std::vector<size_t>> table(num_gpus, std::vector<size_t>(num_gpus));
+    {
+        GpuTimer gtimer(context.get_streams(0)[0], "multisplit", context.get_device_id(0), std::cout);
+        multisplit.execAsync(srcs, lens, dsts, lens, table, part_hash);
+        multisplit.sync();
+    }
+
+    print_partition_table(table);
+
+    // prepare scatter --------------------------------------------------------
+    srcs.swap(dsts);
+
+    std::vector<size_t> bufs_lens_scatter = scatter.calcBufferLengths(table[main_gpu]);
+    print_buffer_sizes(bufs_lens_scatter);
+
+    std::vector<data_t *> bufs(num_gpus);
+    std::vector<size_t> bufs_lens(bufs_lens_scatter);
+    {
+        GpuTimer gtimer(context.get_streams(0)[0], "malloc_buffers", context.get_device_id(0), std::cout);
+        for (gpu_id_t gpu = 0; gpu < num_gpus; ++gpu) {
+            cudaSetDevice(context.get_device_id(gpu)); CUERR
+            cudaMalloc(&bufs[gpu], sizeof(data_t)*bufs_lens[gpu]); CUERR
+        }
+    }
+
+    // reset dsts and buffer to zero
+    {
+        GpuTimer gtimer(context.get_streams(0)[0], "reset_buffers", context.get_device_id(0), std::cout);
+        memset_all(context, dsts, mems_lens, data_t(0));
+        memset_all(context, bufs, bufs_lens, data_t(0));
+        context.sync_all_streams();
+        CUERR
+    }
+
+    // scatter.show_plan();
+
+    {
+        GpuTimer gtimer(context.get_streams(0)[0], "scatter", context.get_device_id(0), std::cout);
+        scatter.execAsync(srcs[main_gpu], mems_lens[main_gpu],
+                        dsts, mems_lens,
+                        bufs, bufs_lens,
+                        table[main_gpu]);
+        scatter.sync();
+        CUERR
+    }
+
+    {
+        GpuTimer gtimer(context.get_streams(0)[0], "validate_scatter", context.get_device_id(0), std::cout);
+        for (gpu_id_t gpu = 0; gpu < num_gpus; gpu++) {
+            cudaSetDevice(context.get_device_id(gpu));
+            validate<<<256, 1024, 0, context.get_streams(gpu)[0]>>>
+                (dsts[gpu], table[main_gpu][gpu], gpu, part_hash);
+        }
+        context.sync_all_streams();
+        CUERR
+    }
+
+    std::cout << '\n';
+
+    // prepare gather ---------------------------------------------------------
+    srcs.swap(dsts);
+
+    std::vector<size_t> bufs_lens_gather = gather.calcBufferLengths(table[main_gpu]);
+    print_buffer_sizes(bufs_lens_gather);
+
+    {
+        GpuTimer gtimer(context.get_streams(0)[0], "realloc_buffers", context.get_device_id(0), std::cout);
+        for (gpu_id_t gpu = 0; gpu < num_gpus; ++gpu) {
+            if(bufs_lens[gpu] < bufs_lens_gather[gpu]) {
+                bufs_lens[gpu] = bufs_lens_gather[gpu];
+                cudaSetDevice(context.get_device_id(gpu)); CUERR
+                cudaFree(bufs[gpu]); CUERR
+                cudaMalloc(&bufs[gpu], sizeof(data_t)*bufs_lens[gpu]); CUERR
+            }
+        }
+    }
+
+    // reset dsts and buffer to zero
+    {
+        GpuTimer gtimer(context.get_streams(0)[0], "reset_buffers_again", context.get_device_id(0), std::cout);
+        memset_all(context, dsts, mems_lens, data_t(0));
+        memset_all(context, bufs, bufs_lens, data_t(0));
+        context.sync_all_streams();
+        CUERR
+    }
+
+    // gather.show_plan();
+
+    {
+        GpuTimer gtimer(context.get_streams(0)[0], "gather", context.get_device_id(0), std::cout);
+        gather.execAsync(srcs, mems_lens,
+                        dsts[main_gpu], mems_lens[main_gpu],
+                        bufs, bufs_lens,
+                        table[main_gpu]);
+        gather.sync();
+        CUERR
+    }
+
+    {
+        GpuTimer gtimer(context.get_streams(0)[0], "validate_gather", context.get_device_id(0), std::cout);
+        std::vector<data_t *> mems2(num_gpus, dsts[main_gpu]);
+        for (gpu_id_t trg = 1; trg < num_gpus; trg++) {
+            mems2[trg] = mems2[trg-1] + table[main_gpu][trg-1];
+        }
+
+        cudaSetDevice(context.get_device_id(main_gpu));
+        for (gpu_id_t gpu = 0; gpu < num_gpus; gpu++) {
+            validate<<<256, 1024, 0, context.get_streams(main_gpu)[0]>>>
+                (mems2[gpu], table[main_gpu][gpu], gpu, part_hash);
+        }
+        context.sync_all_streams();
+        CUERR
+    }
+
+    // cleanup ----------------------------------------------------------------
+    context.sync_hard();
+    for (gpu_id_t gpu = 0; gpu < num_gpus; ++gpu) {
+        cudaSetDevice(context.get_device_id(gpu)); CUERR
+        cudaFree(srcs[gpu]);        CUERR
+        cudaFree(dsts[gpu]);        CUERR
+        cudaFree(bufs[gpu]);        CUERR
     }
 }
