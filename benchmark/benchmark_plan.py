@@ -15,17 +15,18 @@ def valid(output):
     return True
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument("type", type=str, help="collective type (all2all|all2all_async|scatter_gather|broadcast)")
+parser.add_argument("type", type=str, help="collective type (all2all|all2all_async|scatter_gather|broadcast|scatter_gather_p2p)")
 parser.add_argument("plan", type=str, nargs='+', help="JSON which specifies the communication strategy\n\
     scatter_gather requires one plan for each collective")
 parser.add_argument("--output", "-o", type=str, help="output file", default="benchmark.csv")
 parser.add_argument("--repeats", "-r", type=int, help="number of repeated executions", default=3)
+parser.add_argument("--target", "-t", type=int, help="number of repeated executions", default=7)
 parser.add_argument("--maxsize", type=int, help="maximum overall amount of data to be communicated (bytes log2)", default=28)
 parser.add_argument("--minsize", type=int, help="minimum overall amount of data to be communicated (bytes log2)", default=12)
 args = parser.parse_args()
 
 # args.type has to be one of the following options
-types = ["all2all", "all2all_async", "scatter_gather", "broadcast"]
+types = ["all2all", "all2all_async", "scatter_gather", "broadcast", "scatter_gather_p2p"]
 assert(args.type in types)
 assert(args.output.endswith(".csv"))
 if args.type == "scatter_gather":
@@ -43,6 +44,8 @@ out_csv = ""
 # extract filename to use as output file descriptor
 plans = [absolute_path(plan) for plan in args.plan]
 
+tget = args.target
+
 # main loop over data sizes
 for i, s in enumerate(sizes):
     print("\tPROGRESS: size " + str(i+1) + "/" + str(len(sizes)))
@@ -54,6 +57,8 @@ for i, s in enumerate(sizes):
         # execute collective
         if args.type == "scatter_gather":
             out = subprocess.check_output([exe, args.type, plans[0], plans[1], "--size", str(s)])
+        elif args.type == "scatter_gather_p2p":
+            out = subprocess.check_output([exe, args.type, plans[0], plans[1], "--size", str(s), "--target", tget])
         else:
             out = subprocess.check_output([exe, args.type, plans[0], "--size", str(s)])
 
