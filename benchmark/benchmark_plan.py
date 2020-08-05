@@ -64,6 +64,7 @@ for i, s in enumerate(sizes):
 
         # process result and extract runtime
         for line in out.decode().split('\n'):
+            print(line)
             if r == 0:
                 # add data size [bytes] as first columns to csv
                 if line.startswith('INFO') and line.endswith("(" + args.type + ")"):
